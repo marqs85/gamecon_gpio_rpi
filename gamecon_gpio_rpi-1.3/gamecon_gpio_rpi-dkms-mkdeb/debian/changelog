@@ -1,0 +1,6 @@
+DEBIAN_PACKAGE-dkms (MODULE_VERSION) stable; urgency=low
+
+  * Fix build on recent kernels.
+
+ -- Markus Hiienkari <mhiienka@niksula.hut.fi>  DATE_STAMP
+
