@@ -288,8 +288,16 @@ static void gc_n64_process_packet(struct gc *gc)
 		s = gc_status_bit[i];
 
 		/* ensure that the response is valid */
-		if (s & ~(data[8] | data[9] | ~data[32])) {
-
+		if (s & ~(data[8] | data[9] | ~data[32])) &&
+				//if we accidentally sent a status command [0x00] (due to bad timing sending the command), then the controller will reply with 050000, 050002, 050003 or 050001				
+				//bit 5 and 7 would be on, all others would be off, and 30 and 31 would be don't-care
+			 (s & ~(data[5] & data[7] & 
+				    ~(data[0] | data[1] | data[2] | data[3] | data[4] | data[6] | data[8] | data[9] | data[10] | data[11] | data[12] | data[13] | data[14] | data[15] | data[16] | data[17] | data[18] | data[18]
+							  | data[19] | data[20] | data[21] | data[22] | data[23] | data[24] | data[25] | data[26] | data[27] | data[28] | data[29])
+				   )
+			 )
+			)
+		{
 			x = y = 0;
 
 			for (j = 0; j < 8; j++) {
