@@ -113,6 +113,20 @@ void delayMicrosecondsHard (unsigned int howLong)
         do_gettimeofday (&tNow) ;
 }
 
+void waitUntilMicrosecondsHard (const struct timeval *tStart, unsigned int howLong)
+{
+    struct timeval tNow, tLong, tEnd ;
+    
+    tLong.tv_sec  = howLong / 1000000 ;
+    tLong.tv_usec = howLong % 1000000 ;
+    timevaladd (&tEnd, tStart, &tLong) ;
+    
+    do
+    {
+        do_gettimeofday (&tNow) ;
+    } while (timeval_lt (&tNow, &tEnd));
+}
+
 struct gc_config {
 	int args[GC_MAX_DEVICES];
 	unsigned int nargs;
@@ -229,6 +243,8 @@ struct gc_nin_gpio n64_prop = { GC_N64,
 static inline void gc_n64_send_command(struct gc_nin_gpio *ningpio)
 {
 	int i;
+    struct timeval tStart;
+    bool start_time_init = false;
 	
 	/* set correct GPIOs to outputs */
 	*gpio &= ~ningpio->cmd_setinputs;
@@ -236,16 +252,27 @@ static inline void gc_n64_send_command(struct gc_nin_gpio *ningpio)
 	
 	/* transmit a data request to pads */
 	for (i = 0; i < ningpio->request_len; i++) {
+        
 		if ((unsigned)((ningpio->request >> i) & 1) == 0) {
 			GPIO_CLR = ningpio->valid_bits;
-			delayMicrosecondsHard(3);
+            if(!start_time_init)
+            {
+                do_gettimeofday (&tStart) ;
+                start_time_init = true;
+            }
+			waitUntilMicrosecondsHard(&tStart, (4*i)+3);
 			GPIO_SET = ningpio->valid_bits;
-			delayMicrosecondsHard(1);
+			waitUntilMicrosecondsHard(&tStart, (4*i)+4);
 		} else {
 			GPIO_CLR = ningpio->valid_bits;
-			delayMicrosecondsHard(1);
+            if(!start_time_init)
+            {
+                do_gettimeofday (&tStart) ;
+                start_time_init = true;
+            }
+            waitUntilMicrosecondsHard(&tStart, (4*i)+1);
 			GPIO_SET = ningpio->valid_bits;
-			delayMicrosecondsHard(3);
+            waitUntilMicrosecondsHard(&tStart, (4*i)+4);
 		}
 	}
 	
