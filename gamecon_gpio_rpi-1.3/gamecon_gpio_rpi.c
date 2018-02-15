@@ -37,6 +37,7 @@
 #include <linux/ioport.h>
 #include <asm/io.h>
 
+
 MODULE_AUTHOR("Markus Hiienkari");
 MODULE_DESCRIPTION("NES, SNES, N64, PSX, GC gamepad driver");
 MODULE_LICENSE("GPL");
@@ -57,6 +58,60 @@ MODULE_LICENSE("GPL");
 #define GPIO_STATUS (*(gpio+13))
 
 static volatile unsigned *gpio;
+
+/*
+ from http://git.drogon.net/?p=wiringPi;a=blob_plain;f=wiringPi/wiringPi.c
+ * delayMicroseconds:
+ *	This is somewhat intersting. It seems that on the Pi, a single call
+ *	to nanosleep takes some 80 to 130 microseconds anyway, so while
+ *	obeying the standards (may take longer), it's not always what we
+ *	want!
+ *
+ *	So what I'll do now is if the delay is less than 100uS we'll do it
+ *	in a hard loop, watching a built-in counter on the ARM chip. This is
+ *	somewhat sub-optimal in that it uses 100% CPU, something not an issue
+ *	in a microcontroller, but under a multi-tasking, multi-user OS, it's
+ *	wastefull, however we've no real choice )-:
+ *
+ *      Plan B: It seems all might not be well with that plan, so changing it
+ *      to use gettimeofday () and poll on that instead...
+ *********************************************************************************
+ */
+
+void timevaladd(struct timeval *result, const struct timeval *a, const struct timeval *b)
+{
+    result->tv_sec = a->tv_sec + b->tv_sec;
+    result->tv_usec = a->tv_usec + b->tv_usec;
+    if (result->tv_usec >= 1000000)
+    {
+        ++result->tv_sec;
+        result->tv_usec -= 1000000;
+    }
+}
+
+bool timeval_lt(const struct timeval *a, const struct timeval *b)
+{
+    if(a->tv_sec == b->tv_sec)
+    {
+        return a->tv_usec < b->tv_usec;
+    }
+    return a->tv_sec < b->tv_sec;
+}
+
+
+
+void delayMicrosecondsHard (unsigned int howLong)
+{
+    struct timeval tNow, tLong, tEnd ;
+    
+    do_gettimeofday (&tNow) ;
+    tLong.tv_sec  = howLong / 1000000 ;
+    tLong.tv_usec = howLong % 1000000 ;
+    timevaladd (&tEnd, &tNow, &tLong) ;
+    
+    while (timeval_lt (&tNow, &tEnd))
+        do_gettimeofday (&tNow) ;
+}
 
 struct gc_config {
 	int args[GC_MAX_DEVICES];
@@ -183,20 +238,20 @@ static inline void gc_n64_send_command(struct gc_nin_gpio *ningpio)
 	for (i = 0; i < ningpio->request_len; i++) {
 		if ((unsigned)((ningpio->request >> i) & 1) == 0) {
 			GPIO_CLR = ningpio->valid_bits;
-			udelay(3);
+			delayMicrosecondsHard(3);
 			GPIO_SET = ningpio->valid_bits;
-			udelay(1);
+			delayMicrosecondsHard(1);
 		} else {
 			GPIO_CLR = ningpio->valid_bits;
-			udelay(1);
+			delayMicrosecondsHard(1);
 			GPIO_SET = ningpio->valid_bits;
-			udelay(3);
+			delayMicrosecondsHard(3);
 		}
 	}
 	
 	/* send stop bit (let pull-up handle the last 2us)*/
 	GPIO_CLR = ningpio->valid_bits;
-	udelay(1);
+	delayMicrosecondsHard(1);
 	GPIO_SET = ningpio->valid_bits;
 	
 	/* set the GPIOs back to inputs */
