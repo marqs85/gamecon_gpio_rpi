@@ -113,20 +113,6 @@ void delayMicrosecondsHard (unsigned int howLong)
         do_gettimeofday (&tNow) ;
 }
 
-void waitUntilMicrosecondsHard (const struct timeval *tStart, unsigned int howLong)
-{
-    struct timeval tNow, tLong, tEnd ;
-    
-    tLong.tv_sec  = howLong / 1000000 ;
-    tLong.tv_usec = howLong % 1000000 ;
-    timevaladd (&tEnd, tStart, &tLong) ;
-    
-    do
-    {
-        do_gettimeofday (&tNow) ;
-    } while (timeval_lt (&tNow, &tEnd));
-}
-
 struct gc_config {
 	int args[GC_MAX_DEVICES];
 	unsigned int nargs;
@@ -243,36 +229,33 @@ struct gc_nin_gpio n64_prop = { GC_N64,
 static inline void gc_n64_send_command(struct gc_nin_gpio *ningpio)
 {
 	int i;
-    struct timeval tStart;
-    bool start_time_init = false;
 	
 	/* set correct GPIOs to outputs */
 	*gpio &= ~ningpio->cmd_setinputs;
 	*gpio |= ningpio->cmd_setoutputs;
+    
+/* if we keep this ratio of 1:3 and 3:1, then widening out our period 
+   by scaling the delays seems to help when one of our delays waits an extra 1-2us 
+ 
+   if our small delay ends up being close to as long as our long delay, it's a problem
+   if we try to delay 1us, adding an extra 2us really confuses the protocol because the bit becomes 3us:3us
+ 
+   if we widen it out to 2us:6us, adding an extra 2us is still 4us:6us and the controller accepts this
+ */
+#define N64_DELAY_SCALE 3 /* tested up to 10 (official N64 controller) */
 	
 	/* transmit a data request to pads */
 	for (i = 0; i < ningpio->request_len; i++) {
-        
 		if ((unsigned)((ningpio->request >> i) & 1) == 0) {
 			GPIO_CLR = ningpio->valid_bits;
-            if(!start_time_init)
-            {
-                do_gettimeofday (&tStart) ;
-                start_time_init = true;
-            }
-			waitUntilMicrosecondsHard(&tStart, (4*i)+3);
+			delayMicrosecondsHard(3*N64_DELAY_SCALE);
 			GPIO_SET = ningpio->valid_bits;
-			waitUntilMicrosecondsHard(&tStart, (4*i)+4);
+			delayMicrosecondsHard(1*N64_DELAY_SCALE);
 		} else {
 			GPIO_CLR = ningpio->valid_bits;
-            if(!start_time_init)
-            {
-                do_gettimeofday (&tStart) ;
-                start_time_init = true;
-            }
-            waitUntilMicrosecondsHard(&tStart, (4*i)+1);
+			delayMicrosecondsHard(1*N64_DELAY_SCALE);
 			GPIO_SET = ningpio->valid_bits;
-            waitUntilMicrosecondsHard(&tStart, (4*i)+4);
+			delayMicrosecondsHard(3*N64_DELAY_SCALE);
 		}
 	}
 	
