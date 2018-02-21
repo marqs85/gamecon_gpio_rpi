@@ -37,6 +37,7 @@
 #include <linux/ioport.h>
 #include <asm/io.h>
 
+
 MODULE_AUTHOR("Markus Hiienkari");
 MODULE_DESCRIPTION("NES, SNES, N64, PSX, GC gamepad driver");
 MODULE_LICENSE("GPL");
@@ -57,6 +58,60 @@ MODULE_LICENSE("GPL");
 #define GPIO_STATUS (*(gpio+13))
 
 static volatile unsigned *gpio;
+
+/*
+ from http://git.drogon.net/?p=wiringPi;a=blob_plain;f=wiringPi/wiringPi.c
+ * delayMicroseconds:
+ *	This is somewhat intersting. It seems that on the Pi, a single call
+ *	to nanosleep takes some 80 to 130 microseconds anyway, so while
+ *	obeying the standards (may take longer), it's not always what we
+ *	want!
+ *
+ *	So what I'll do now is if the delay is less than 100uS we'll do it
+ *	in a hard loop, watching a built-in counter on the ARM chip. This is
+ *	somewhat sub-optimal in that it uses 100% CPU, something not an issue
+ *	in a microcontroller, but under a multi-tasking, multi-user OS, it's
+ *	wastefull, however we've no real choice )-:
+ *
+ *      Plan B: It seems all might not be well with that plan, so changing it
+ *      to use gettimeofday () and poll on that instead...
+ *********************************************************************************
+ */
+
+void timevaladd(struct timeval *result, const struct timeval *a, const struct timeval *b)
+{
+    result->tv_sec = a->tv_sec + b->tv_sec;
+    result->tv_usec = a->tv_usec + b->tv_usec;
+    if (result->tv_usec >= 1000000)
+    {
+        ++result->tv_sec;
+        result->tv_usec -= 1000000;
+    }
+}
+
+bool timeval_lt(const struct timeval *a, const struct timeval *b)
+{
+    if(a->tv_sec == b->tv_sec)
+    {
+        return a->tv_usec < b->tv_usec;
+    }
+    return a->tv_sec < b->tv_sec;
+}
+
+
+
+void delayMicrosecondsHard (unsigned int howLong)
+{
+    struct timeval tNow, tLong, tEnd ;
+    
+    do_gettimeofday (&tNow) ;
+    tLong.tv_sec  = howLong / 1000000 ;
+    tLong.tv_usec = howLong % 1000000 ;
+    timevaladd (&tEnd, &tNow, &tLong) ;
+    
+    while (timeval_lt (&tNow, &tEnd))
+        do_gettimeofday (&tNow) ;
+}
 
 struct gc_config {
 	int args[GC_MAX_DEVICES];
@@ -178,25 +233,35 @@ static inline void gc_n64_send_command(struct gc_nin_gpio *ningpio)
 	/* set correct GPIOs to outputs */
 	*gpio &= ~ningpio->cmd_setinputs;
 	*gpio |= ningpio->cmd_setoutputs;
+    
+/* if we keep this ratio of 1:3 and 3:1, then widening out our period 
+   by scaling the delays seems to help when one of our delays waits an extra 1-2us 
+ 
+   if our small delay ends up being close to as long as our long delay, it's a problem
+   if we try to delay 1us, adding an extra 2us really confuses the protocol because the bit becomes 3us:3us
+ 
+   if we widen it out to 2us:6us, adding an extra 2us is still 4us:6us and the controller accepts this
+ */
+#define N64_DELAY_SCALE 3 /* tested up to 10 (official N64 controller) */
 	
 	/* transmit a data request to pads */
 	for (i = 0; i < ningpio->request_len; i++) {
 		if ((unsigned)((ningpio->request >> i) & 1) == 0) {
 			GPIO_CLR = ningpio->valid_bits;
-			udelay(3);
+			delayMicrosecondsHard(3*N64_DELAY_SCALE);
 			GPIO_SET = ningpio->valid_bits;
-			udelay(1);
+			delayMicrosecondsHard(1*N64_DELAY_SCALE);
 		} else {
 			GPIO_CLR = ningpio->valid_bits;
-			udelay(1);
+			delayMicrosecondsHard(1*N64_DELAY_SCALE);
 			GPIO_SET = ningpio->valid_bits;
-			udelay(3);
+			delayMicrosecondsHard(3*N64_DELAY_SCALE);
 		}
 	}
 	
 	/* send stop bit (let pull-up handle the last 2us)*/
 	GPIO_CLR = ningpio->valid_bits;
-	udelay(1);
+	delayMicrosecondsHard(1);
 	GPIO_SET = ningpio->valid_bits;
 	
 	/* set the GPIOs back to inputs */
@@ -287,9 +352,25 @@ static void gc_n64_process_packet(struct gc *gc)
 		dev = gc->pads[i].dev;
 		s = gc_status_bit[i];
 
-		/* ensure that the response is valid */
-		if (s & ~(data[8] | data[9] | ~data[32])) {
-
+        /* ensure that the response is validthere are 2 types of invalid response:
+			1)  one where the reset or reserved bit is set or the stop bit isn't set
+				Reset is '1' when L+R+Start are all pressed.  When Reset is '1', L and R are both reported as '1' but Start is reported as '0'.
+				Reserved/Unknown, always '0' for normal gamepads
+			2)	if we accidentally sent a status command [0x00] (due to bad timing sending the command),
+				then the controller will reply with 050000, 050002, 050003 or 050001                         
+				bit 5 and 7 would be on, all others would be off, and 30 and 31 would be don't-care (may be on or off)
+		*/
+//#define PRUNE_N64_STATUS_RESPONSE
+        if ((s & ~(data[8] | data[9] | ~data[32])
+#ifdef PRUNE_N64_STATUS_RESPONSE
+               & ~(data[5] & data[7] &
+                   ~(data[0] | data[1] | data[2] | data[3] | data[4] | data[6] | data[8] | data[9] | data[10] | data[11] | data[12] | data[13] | data[14] | data[15] | data[16] | data[17] | data[18] | data[18]
+                             | data[19] | data[20] | data[21] | data[22] | data[23] | data[24] | data[25] | data[26] | data[27] | data[28] | data[29])
+                    )
+#endif
+             )
+            )
+        {
 			x = y = 0;
 
 			for (j = 0; j < 8; j++) {
