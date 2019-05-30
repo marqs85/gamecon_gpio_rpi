@@ -33,8 +33,8 @@
 #include <linux/input.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
-
 #include <linux/ioport.h>
+#include <linux/version.h>
 #include <asm/io.h>
 
 
@@ -56,6 +56,10 @@ MODULE_LICENSE("GPL");
 #define GPIO_CLR *(gpio+10)
 
 #define GPIO_STATUS (*(gpio+13))
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
+#define HAVE_TIMER_SETUP
+#endif
 
 static volatile unsigned *gpio;
 
@@ -940,9 +944,15 @@ static void gc_psx_process_packet(struct gc *gc)
  * gc_timer() initiates reads of console pads data.
  */
 
+#ifdef HAVE_TIMER_SETUP
+static void gc_timer(struct timer_list *t)
+{
+	struct gc *gc = from_timer(gc, t, timer);
+#else
 static void gc_timer(unsigned long private)
 {
 	struct gc *gc = (void *) private;
+#endif
 
 /*
  * N64 & Gamecube pads
@@ -1216,7 +1226,11 @@ static struct gc __init *gc_probe(int *pads, int n_pads)
 	}
 
 	mutex_init(&gc->mutex);
+	#ifdef HAVE_TIMER_SETUP
+	timer_setup(&gc->timer, gc_timer, 0);
+	#else
 	setup_timer(&gc->timer, gc_timer, (long) gc);
+	#endif
 
 	for (i = 0; i < n_pads && i < GC_MAX_DEVICES; i++) {
 		if (!pads[i])
