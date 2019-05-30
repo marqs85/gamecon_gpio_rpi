@@ -188,13 +188,22 @@ enum pad_gpios {
 	PAD6_GPIO = 3
 };
 
+/* GPIO pins 10, 11 */
+enum common_gpios {
+	NES_CLOCK_GPIO = 10,
+	NES_LATCH_GPIO = 11,
+	PSX_COMMAND_GPIO = 14,
+	PSX_SELECT_GPIO = 15,
+	PSX_CLOCK_GPIO = 18
+};
+
 static const int gc_gpio_ids[] = { PAD1_GPIO, PAD2_GPIO, PAD3_GPIO, PAD4_GPIO, PAD5_GPIO, PAD6_GPIO };
-static const int gc_status_bit[] = { (1<<PAD1_GPIO),
-									(1<<PAD2_GPIO),
-									(1<<PAD3_GPIO),
-									(1<<PAD4_GPIO),
-									(1<<PAD5_GPIO),
-									(1<<PAD6_GPIO) };
+static const unsigned long gc_status_bit[] = { 	(1<<PAD1_GPIO),
+												(1<<PAD2_GPIO),
+												(1<<PAD3_GPIO),
+												(1<<PAD4_GPIO),
+												(1<<PAD5_GPIO),
+												(1<<PAD6_GPIO) };
 
 static const char *gc_names[] = {
 	NULL, "SNES pad", "NES pad", "Gamecube controller", "NES pad (Four Score)",
@@ -278,12 +287,12 @@ static inline void gc_n64_send_command(struct gc_nin_gpio *ningpio)
  * are read in parallel.
  */
 
-static void gc_n64_read_packet(struct gc *gc, struct gc_nin_gpio *ningpio, unsigned char *data)
+static void gc_n64_read_packet(struct gc *gc, struct gc_nin_gpio *ningpio, unsigned long *data)
 {
 	int i,j,k;
 	unsigned prev, mindiff=1000, maxdiff=0;
 	unsigned long flags;
-	static unsigned char samplebuf[6500]; // =max(GC_N64_BUFSIZE, GC_GCUBE_BUFSIZE)
+	static unsigned long samplebuf[6500]; // =max(GC_N64_BUFSIZE, GC_GCUBE_BUFSIZE)
 	
 	/* disable interrupts */
 	local_irq_save(flags);
@@ -341,9 +350,10 @@ static void gc_n64_read_packet(struct gc *gc, struct gc_nin_gpio *ningpio, unsig
 
 static void gc_n64_process_packet(struct gc *gc)
 {
-	unsigned char data[GC_N64_LENGTH];
+	unsigned long data[GC_N64_LENGTH];
 	struct input_dev *dev;
-	int i, j, s;
+	int i, j;
+	unsigned long s;
 	signed char x, y;
 
 	gc_n64_read_packet(gc, &n64_prop, data);
@@ -461,9 +471,10 @@ struct gc_nin_gpio gcube_prop = { GC_GCUBE,
 
 static void gc_gcube_process_packet(struct gc *gc)
 {
-	unsigned char data[GC_GCUBE_LENGTH];
+	unsigned long data[GC_GCUBE_LENGTH];
 	struct input_dev *dev;
-	int i, j, s;
+	int i, j;
+	unsigned long s;
 	unsigned char x, y, x2, y2, y3, y4;
 
 	gc_n64_read_packet(gc, &gcube_prop, data);
@@ -531,9 +542,8 @@ static void gc_gcube_process_packet(struct gc *gc)
 #define GC_NESFOURSCORE_LENGTH	24 /* The NES Four Score adapter uses 24
 					   bits of data */
 
-/* clock = gpio10, latch = gpio11 */
-#define GC_NES_CLOCK	0x400
-#define GC_NES_LATCH	0x800
+#define GC_NES_CLOCK	(1<<NES_CLOCK_GPIO)
+#define GC_NES_LATCH	(1<<NES_LATCH_GPIO)
 
 static const unsigned char gc_nes_bytes[] = { 0, 1, 2, 3 };
 static const unsigned char gc_snes_bytes[] = { 8, 0, 2, 3, 9, 1, 10, 11 };
@@ -547,7 +557,7 @@ static const short gc_snes_btn[] = {
  * this port are read in parallel.
  */
 
-static void gc_nes_read_packet(struct gc *gc, int length, unsigned char *data)
+static void gc_nes_read_packet(struct gc *gc, int length, unsigned long *data)
 {
 	int i;
 
@@ -566,10 +576,11 @@ static void gc_nes_read_packet(struct gc *gc, int length, unsigned char *data)
 
 static void gc_nes_process_packet(struct gc *gc)
 {
-	unsigned char data[GC_SNESMOUSE_LENGTH];
+	unsigned long data[GC_SNESMOUSE_LENGTH];
 	struct gc_pad *pad;
 	struct input_dev *dev, *dev2;
-	int i, j, s, len;
+	int i, j, len;
+	unsigned long s;
 	unsigned char fs_connected;
 	char x_rel, y_rel;
 
@@ -736,9 +747,9 @@ static void gc_nes_process_packet(struct gc *gc)
 #define GC_PSX_ANALOG	5		/* Analog in Analog mode / Rumble in Green mode */
 #define GC_PSX_RUMBLE	7		/* Rumble in Red mode */
 
-#define GC_PSX_CLOCK	(1<<18)		/* Pin 18 */
-#define GC_PSX_COMMAND	(1<<14)		/* Pin 14 */
-#define GC_PSX_SELECT	(1<<15)		/* Pin 15 */
+#define GC_PSX_CLOCK	(1<<PSX_CLOCK_GPIO)
+#define GC_PSX_COMMAND	(1<<PSX_COMMAND_GPIO)
+#define GC_PSX_SELECT	(1<<PSX_SELECT_GPIO)
 
 #define GC_PSX_ID(x)	((x) >> 4)	/* High nibble is device type */
 #define GC_PSX_LEN(x)	(((x) & 0xf) << 1)	/* Low nibble is length in bytes/2 */
@@ -759,7 +770,8 @@ static const short gc_psx_ddr_btn[] = { BTN_0, BTN_1, BTN_2, BTN_3 };
 
 static void gc_psx_command(struct gc *gc, int b, unsigned char *data)
 {
-	int i, j, read;
+	int i, j;
+	unsigned long read;
 
 	memset(data, 0, GC_MAX_DEVICES);
 
@@ -771,7 +783,7 @@ static void gc_psx_command(struct gc *gc, int b, unsigned char *data)
 			GPIO_SET = GC_PSX_COMMAND;
 		else
 			GPIO_CLR = GC_PSX_COMMAND;
-		
+
 		udelay(GC_PSX_DELAY);
 		GPIO_SET = GC_PSX_CLOCK;
 
@@ -1186,7 +1198,7 @@ static int __init gc_setup_pad(struct gc *gc, int idx, int pad_type)
 	}
 
 	/* set data pin to input */
-	*gpio &= ~(7<<(gc_gpio_ids[idx]*3));
+	*(gpio+(gc_gpio_ids[idx]/10)) &= ~(7<<((gc_gpio_ids[idx]%10)*3));
 	
 	/* enable pull-up on GPIO4 or higher */
 	if (gc_gpio_ids[idx] >= 4) {
@@ -1248,23 +1260,29 @@ static struct gc __init *gc_probe(int *pads, int n_pads)
 		err = -EINVAL;
 		goto err_free_gc;
 	}
-	
+
 	/* setup common pins for each pad type */
 	if (gc->pad_count[GC_NES] ||
 		gc->pad_count[GC_SNES] ||
 		gc->pad_count[GC_SNESMOUSE] ||
 		gc->pad_count[GC_NESFOURSCORE]) {
-		
+
 		/* set clk & latch pins to OUTPUT */
-		*(gpio+1) &= ~0x3f;
-		*(gpio+1) |= 0x09;
+		*(gpio+(NES_CLOCK_GPIO/10)) &= ~(7<<((NES_CLOCK_GPIO%10)*3));
+		*(gpio+(NES_CLOCK_GPIO/10)) |= (1<<((NES_CLOCK_GPIO%10)*3));
+		*(gpio+(NES_LATCH_GPIO/10)) &= ~(7<<((NES_LATCH_GPIO%10)*3));
+		*(gpio+(NES_LATCH_GPIO/10)) |= (1<<((NES_LATCH_GPIO%10)*3));
 	}
 	if (gc->pad_count[GC_PSX] ||
 		gc->pad_count[GC_DDR]) {
-	
+
 		/* set clk, cmd & sel pins to OUTPUT */
-		*(gpio+1) &= ~((7<<12) | (7<<15) | (7<<24));
-		*(gpio+1) |= ((1<<12) | (1<<15) | (1<<24));
+		*(gpio+(PSX_CLOCK_GPIO/10)) &= ~(7<<((PSX_CLOCK_GPIO%10)*3));
+		*(gpio+(PSX_CLOCK_GPIO/10)) |= (1<<((PSX_CLOCK_GPIO%10)*3));
+		*(gpio+(PSX_COMMAND_GPIO/10)) &= ~(7<<((PSX_COMMAND_GPIO%10)*3));
+		*(gpio+(PSX_COMMAND_GPIO/10)) |= (1<<((PSX_COMMAND_GPIO%10)*3));
+		*(gpio+(PSX_SELECT_GPIO/10)) &= ~(7<<((PSX_SELECT_GPIO%10)*3));
+		*(gpio+(PSX_SELECT_GPIO/10)) |= (1<<((PSX_SELECT_GPIO%10)*3));
 	}
 
 	return gc;
