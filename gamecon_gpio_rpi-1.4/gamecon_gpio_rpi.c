@@ -101,58 +101,12 @@ static u32 __init gc_bcm_peri_base_probe(void) {
 	return base_address == 1 ? 0x02000000 : base_address;
 }
 
-/*
- from http://git.drogon.net/?p=wiringPi;a=blob_plain;f=wiringPi/wiringPi.c
- * delayMicroseconds:
- *	This is somewhat intersting. It seems that on the Pi, a single call
- *	to nanosleep takes some 80 to 130 microseconds anyway, so while
- *	obeying the standards (may take longer), it's not always what we
- *	want!
- *
- *	So what I'll do now is if the delay is less than 100uS we'll do it
- *	in a hard loop, watching a built-in counter on the ARM chip. This is
- *	somewhat sub-optimal in that it uses 100% CPU, something not an issue
- *	in a microcontroller, but under a multi-tasking, multi-user OS, it's
- *	wastefull, however we've no real choice )-:
- *
- *      Plan B: It seems all might not be well with that plan, so changing it
- *      to use gettimeofday () and poll on that instead...
- *********************************************************************************
- */
-
-void timevaladd(struct timeval *result, const struct timeval *a, const struct timeval *b)
-{
-    result->tv_sec = a->tv_sec + b->tv_sec;
-    result->tv_usec = a->tv_usec + b->tv_usec;
-    if (result->tv_usec >= 1000000)
-    {
-        ++result->tv_sec;
-        result->tv_usec -= 1000000;
-    }
-}
-
-bool timeval_lt(const struct timeval *a, const struct timeval *b)
-{
-    if(a->tv_sec == b->tv_sec)
-    {
-        return a->tv_usec < b->tv_usec;
-    }
-    return a->tv_sec < b->tv_sec;
-}
-
-
-
 void delayMicrosecondsHard (unsigned int howLong)
 {
-    struct timeval tNow, tLong, tEnd ;
-    
-    do_gettimeofday (&tNow) ;
-    tLong.tv_sec  = howLong / 1000000 ;
-    tLong.tv_usec = howLong % 1000000 ;
-    timevaladd (&tEnd, &tNow, &tLong) ;
-    
-    while (timeval_lt (&tNow, &tEnd))
-        do_gettimeofday (&tNow) ;
+    ktime_t start_time, end_time;
+    start_time = end_time = ktime_get();
+    while (ktime_us_delta(end_time, start_time) < howLong)
+         end_time = ktime_get();
 }
 
 struct gc_config {
