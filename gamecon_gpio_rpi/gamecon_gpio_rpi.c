@@ -37,6 +37,8 @@
 #include <linux/ioport.h>
 #include <linux/version.h>
 #include <asm/io.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
 
 MODULE_AUTHOR("Markus Hiienkari");
 MODULE_DESCRIPTION("NES, SNES, N64, PSX, GC gamepad driver");
